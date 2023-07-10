@@ -1,14 +1,25 @@
 """
 This module defines the Node and the Path
 Node is intended to be the fundamental unit in string method
-Unlike geometry, it maintains parametric values, which remains 
+Unlike geometry, it maintains parametric values, which remains
 unchanged through the entire calculation
 Path is a collection of nodes, with some additional functions
 """
-
+import copy, os, shutil, glob
 import numpy as np
 from aimsChain.utility import vmag, vunit, vproj
 from aimsChain.config import Control
+from aimsChain.atom import Atoms
+from aimsChain.aimsio import read_aims_output, read_aims, write_aims
+from aimsChain.optimizer.euler import EULER
+from aimsChain.optimizer.newfire import newFIRE
+from aimsChain.interpolate import arb_interp, spline_pos, get_t, linear_interp
+from aimsChain.optimizer.lbfgs import LBFGS
+from aimsChain.optimizer.newbfgs import BFGS
+from aimsChain.optimizer.dampedbfgs import dampedBFGS
+from aimsChain.optimizer.fire import FIRE
+
+
 class Node(object):
     """
     Class for a single Node
@@ -17,16 +28,16 @@ class Node(object):
     path: the path that the particular node blongs to
     dir: the current dir that the node reads
     """
-    def __init__(self, 
-                 param = 0,
-                 geometry = None,
-                 path = None,
-                 dir = None,
-                 fixed = False):
-        from aimsChain.atom import Atoms
+
+    def __init__(self,
+                 param=0,
+                 geometry=None,
+                 path=None,
+                 dir=None,
+                 fixed=False):
         self.__param = float(param)
         self.__geometry = geometry
-        if self.__geometry == None:
+        if self.__geometry is None:
             self.__geometry = Atoms()
         self.__path = path
         self.__dir = dir
@@ -38,25 +49,30 @@ class Node(object):
     @property
     def param(self):
         return self.__param
+
     @param.setter
     def param(self, t):
         self.__param = float(t)
+
     @property
     def geometry(self):
         return self.__geometry
+
     @geometry.setter
     def geometry(self, atoms):
         self.__geometry = atoms
+
     @property
     def climb(self):
         return self.__climb
+
     @climb.setter
     def climb(self, climb):
         self.__climb = bool(climb)
-    
+
     @property
     def control(self):
-        if self.path != None:
+        if self.path is not None:
             return self.path.control
         else:
             return config()
@@ -64,6 +80,7 @@ class Node(object):
     @property
     def path(self):
         return self.__path
+
     @path.setter
     def path(self, path):
         self.__path = path
@@ -71,37 +88,43 @@ class Node(object):
     @property
     def dir(self):
         return self.__dir
+
     @dir.setter
     def dir(self, dir):
         self.__dir = dir
-    
+
     @property
     def dir_pre(self):
         return self.__dir_pre
+
     @dir_pre.setter
-    def dir_pre(self,dir_pre):
+    def dir_pre(self, dir_pre):
         self.__dir_pre = dir_pre
+
     @property
     def ener(self):
         return float(self.__geometry.ener)
+
     @ener.setter
     def ener(self, ener):
         self.__geometry.ener = float(ener)
-    
+
     @property
     def positions(self):
         return self.__geometry.positions
+
     @positions.setter
     def positions(self, positions):
         if not self.__fixed:
             self.__geometry.positions = positions
-    
+
     @property
     def forces(self):
         if self.fixed:
             return np.zeros(np.shape(self.geometry.forces))
         else:
             return self.geometry.forces
+
     @forces.setter
     def forces(self, forces):
         self.__geometry.forces = forces
@@ -112,8 +135,8 @@ class Node(object):
             return np.zeros(np.shape(self.forces))
         elif self.climb:
             forces = self.forces
-            tangent = self.get_tangent(for_climb=True, test_tangent = False)
-            return forces - 2*vproj(forces,tangent)
+            tangent = self.get_tangent(for_climb=True, test_tangent=False)
+            return forces - 2 * vproj(forces, tangent)
         else:
             if self.control.method == "neb":
                 return self.spring_forces
@@ -131,7 +154,7 @@ class Node(object):
 
     @property
     def spring_forces(self):
-        if self.path == None:
+        if self.path is None:
             k = 10.0
         else:
             k = self.control.spring_k
@@ -144,11 +167,11 @@ class Node(object):
         mag = (vmag(tan1) - vmag(tan2))
         forces += k * mag * tangent
         return forces
-    
-   
+
     @property
     def ener(self):
         return self.__geometry.ener
+
     @ener.setter
     def ener(self, energy):
         self.__geometry.ener = energy
@@ -156,6 +179,7 @@ class Node(object):
     @property
     def fixed(self):
         return self.__fixed
+
     @fixed.setter
     def fixed(self, value):
         self.__fixed = bool(value)
@@ -170,6 +194,7 @@ class Node(object):
             return None
         else:
             return self.path.nodes[i-1]
+
     @property
     def next(self):
         """get the next element in path"""
@@ -185,14 +210,12 @@ class Node(object):
     def previous_dir(self):
         """store the previous dir for this node"""
         return self.__previous_dir
+
     @previous_dir.setter
     def previous_dir(self, value):
         self.__previous_dir = value
 
-
-    def get_tangent(self, for_climb=False, unit=True, test_tangent = False):
-        from aimsChain.utility import vunit
-        from aimsChain.interpolate import get_t, spline_pos
+    def get_tangent(self, for_climb=False, unit=True, test_tangent=False):
         prev = self.prev
         next = self.next
         tangent = None
@@ -224,33 +247,29 @@ class Node(object):
                     loc += 1
                 if next.next:
                     positions.append(next.next.positions)
-                print('positions', positions.shape)
+
                 param = get_t(positions)
                 derv = spline_pos(positions, param, param, 3, 1)[loc]
                 tangent = derv
         if unit:
             return vunit(tangent)
-        
 
         return tangent
 
-    def write_node(self, write_fixed = False, control_file = "control.in"):
+    def write_node(self, write_fixed=False, control_file="control.in"):
         """
         create a directory for each node
         including geometry and control
 
         TODO: also get restarts from previous run
         """
-        import glob, os, shutil
-        from aimsChain.aimsio import write_aims
         dir = os.path.join(self.dir_pre, self.dir)
         if (not self.fixed) or write_fixed:
             if not os.path.isdir(dir):
                 os.makedirs(dir)
             write_aims(os.path.join(dir, "geometry.in"), self.geometry)
             shutil.copy(control_file, os.path.join(dir, "control.in"))
-            if (self.path and self.control.aims_restart
-                and self.previous_dir):
+            if (self.path and self.control.aims_restart and self.previous_dir):
                 if self.previous_dir != self.dir:
                     restart_file = self.control.aims_restart + "*"
                     files = glob.glob(os.path.join(self.dir_pre, self.previous_dir, restart_file))
@@ -260,44 +279,48 @@ class Node(object):
             return dir
         else:
             return None
-    
-    def update_dir(self, write_fixed = False):
+
+    def update_dir(self, write_fixed=False):
         """
         update the dirs for all the nodes
-        if write_fixed = True, 
+        if write_fixed = True,
         even fixed nodes will get updates
         """
         if (not self.fixed) or write_fixed:
             self.previous_dir = self.dir
             self.dir = "aims-chain-node-%.5f-%06d" % (self.param, self.path.runs)
-                
+
+
 class Path(object):
     """
     Class for a path
     Parameters:
     nodes: list of nodes that the path contains
     """
-    def __init__(self, 
-                 nodes = [],
-                 control = None):
+
+    def __init__(self,
+                 nodes=[],
+                 control=None):
         self.__nodes = []
         for node in nodes:
-            node.path=self
+            node.path = self
             self.__nodes.append(node)
         self.__runs = 0
         self.__control = control
-        if self.__control == None:
+        if self.__control is None:
             self.__control = Control()
 
     @property
     def control(self):
         return self.__control
+
     @property
     def nodes(self):
         """get a list of all nodes in the path"""
         return self.__nodes
+
     @nodes.setter
-    def nodes(self,node):
+    def nodes(self, node):
         """take either a single node or a list of nodes
         in case of a single node, insert it into self.nodes according to param
         in case of a list of nodes, set it as self.nodes"""
@@ -306,7 +329,7 @@ class Path(object):
             if len(self.__nodes) == 0 or self.__nodes[-1].param <= node.param:
                 self.__nodes.append(node)
             else:
-                for i,n in enumerate(self.__nodes):
+                for i, n in enumerate(self.__nodes):
                     if node.param <= n.param:
                         self.__nodes.insert(i, node)
                         break
@@ -314,31 +337,34 @@ class Path(object):
             for n in node:
                 n.path = self
             self.__nodes = node
+
     @property
     def runs(self):
         return self.__runs
+
     @runs.setter
     def runs(self, value):
         self.__runs = int(value)
+
     @property
     def periodic(self):
-        return self.nodes[0].geometry.lattice != None
+        return self.nodes[0].geometry.lattice is not None
+
     @property
     def lattice_vector(self):
         return self.nodes[0].geometry.lattice
 
     def add_runs(self):
         self.__runs += 1
+
     def load_nodes(self):
         """
-        read geometry.in and aims output, 
-        will find coordinate from geometry, 
+        read geometry.in and aims output,
+        will find coordinate from geometry,
         and forces/energy from aims output
         if aims output is not present, only
         geometry will be read
         """
-        import os
-        from aimsChain.aimsio import read_aims_output, read_aims
         for node in self.nodes:
             dir = os.path.join(node.dir_pre, node.dir)
             geo_path = os.path.join(dir, "geometry.in")
@@ -356,60 +382,51 @@ class Path(object):
         including geometry and control
         name is derived from node.dir
         """
-        import os
-        import shutil
-        from aimsChain.aimsio import write_aims
         path = []
         for node in self.nodes:
             node.update_dir()
-            dir=node.write_node(control_file=control_file)
-            if dir != None:
+            dir = node.write_node(control_file=control_file)
+            if dir is not None:
                 path.append(dir)
         return path
-    
-    def write_all_node(self, control_file = "control.in"):
+
+    def write_all_node(self, control_file="control.in"):
         """
         create a new folder for each node, even fixed
         including geometry and control
         name is derived from node.dir
         """
-        import os
-        import shutil
-        from aimsChain.aimsio import write_aims
         path = []
         for node in self.nodes:
             node.update_dir(True)
             path.append(node.write_node(True, control_file))
         return path
-    
-    def get_paths(self, return_fixed = True):
+
+    def get_paths(self, return_fixed=True):
         """
         return a list of all paths in the current nodes
         will not return fixed nodes if return_fixed is false
         """
-        import os
         path = []
         for node in self.nodes:
             if (not node.fixed) or return_fixed:
                 path.append(os.path.join(node.dir_pre, node.dir))
         return path
 
-    def move_nodes(self, t_step = 0.03):
+    def move_nodes(self, t_step=0.03):
         """
         move the node according to forces
         only euler method for now
         """
-        from aimsChain.optimizer.euler import EULER
-        from aimsChain.interpolate import spline_pos
         positions = []
         forces = []
         new_t = []
         diff_pos = None
         for node in self.nodes:
-            #list all the new params
+            # list all the new params
             new_t.append(node.param)
-            #add pos and force to the list
-            #only if it is not new (0 been default value)
+            # add pos and force to the list
+            # only if it is not new (0 been default value)
             if (np.sum(node.positions) != 0):
                 positions.append(node.positions)
                 forces.append(node.forces)
@@ -417,21 +434,20 @@ class Path(object):
         forces = np.array(forces)
         positions = np.array(positions)
         opt = EULER(t_step)
-        new_pos = opt.step(positions, 
-                        forces)
+        new_pos = opt.step(positions, forces)
         new_pos = spline_pos(new_pos, new_t)
 
-        #check difference only if shape remain unchanged
-        #safeguards against dynamic interpolation
+        # check difference only if shape remain unchanged
+        # safeguards against dynamic interpolation
         if positions.shape == new_pos.shape:
             diff_pos = new_pos - positions
-            diff_pos = np.reshape(diff_pos, (-1,3))
-            diff_pos = np.sum(diff_pos**2,1)**0.5
-    
-        for i,position in enumerate(new_pos):
+            diff_pos = np.reshape(diff_pos, (-1, 3))
+            diff_pos = np.sum(diff_pos**2, 1)**0.5
+
+        for i, position in enumerate(new_pos):
             self.__nodes[i].positions = position
 
-        if diff_pos != None:
+        if diff_pos is not None:
             diff_pos = np.nanmax(diff_pos)
             return diff_pos/t_step
         else:
@@ -441,22 +457,18 @@ class Path(object):
         """
         move the nodes according to NEB rules
         """
-        import os
-        from aimsChain.optimizer.newfire import newFIRE
-        from aimsChain.optimizer.euler import EULER
-        from aimsChain.interpolate import spline_pos
         positions = []
         forces = []
         new_t = []
         diff_pos = None
         new_pos = []
-        t_step = []
+        # t_step = []
         for node in self.nodes:
             new_t.append(node.param)
             if (np.sum(node.positions) != 0):
                 positions.append(node.positions)
                 forces.append(node.forces)
-      
+
         forces = np.array(forces)
         positions = np.array(positions)
         """
@@ -467,7 +479,7 @@ class Path(object):
         new_pos = opt.step(positions, forces)
         opt.dump()
         """
-        for i,node in enumerate(self.nodes):
+        for i, node in enumerate(self.nodes):
             hess = "%.4f.opt" % node.param
             hess = os.path.join(node.dir_pre, hess)
             opt = newFIRE(hess)
@@ -475,42 +487,38 @@ class Path(object):
             opt.load()
             next_pos = opt.step(positions[i], forces[i])
             new_pos.append(next_pos)
-        #    t_step.append(next_t)
+            # t_step.append(next_t)
             opt.dump()
-        
-#        t_step = np.array(t_step)
+
+        # t_step = np.array(t_step)
         new_pos = spline_pos(new_pos, new_t)
-        
+
         if positions.shape == new_pos.shape:
             diff_pos = new_pos - positions
-            diff_pos = np.reshape(diff_pos, (-1,3))
-            diff_pos = np.sum(diff_pos**2,1)**0.5
+            diff_pos = np.reshape(diff_pos, (-1, 3))
+            diff_pos = np.sum(diff_pos**2, 1)**0.5
 
-
-        for i,pos in enumerate(new_pos):
+        for i, pos in enumerate(new_pos):
             self.nodes[i].positions = pos
-            
-        if diff_pos != None:
-            np.set_printoptions(suppress = True)
+
+        if diff_pos is not None:
+            np.set_printoptions(suppress=True)
             return 1.0
             return np.nanmax(diff_pos)
         else:
             return 1.0
 
-
-
     def move_neb(self):
         """
         move the nodes according to NEB rules
         """
-        import os
         positions = []
         forces = []
         new_pos = []
         for node in self.nodes:
             positions.append(node.positions)
             forces.append(node.spring_forces)
-      
+
         forces = np.array(forces)
         positions = np.array(positions)
         if self.control.global_opt:
@@ -521,41 +529,38 @@ class Path(object):
             new_pos = opt.step(positions, forces)
             opt.dump()
         else:
-            for i,node in enumerate(self.nodes):
+            for i, node in enumerate(self.nodes):
                 save = "%.4f.opt" % node.param
                 save = os.path.join(node.dir_pre, save)
                 opt = get_optimizer(self.control, self.control.optimizer, save)
                 opt.initialize()
                 opt.load()
-                new_pos.append(opt.step(positions[i],
-                                        forces[i]))
+                new_pos.append(opt.step(positions[i], forces[i]))
                 opt.dump()
 
-        for i,pos in enumerate(new_pos):
+        for i, pos in enumerate(new_pos):
             self.nodes[i].positions = pos
-            
-        forces = np.reshape(forces, (-1,3))
-        forces = np.sum(forces**2,1)**0.5
+
+        forces = np.reshape(forces, (-1, 3))
+        forces = np.sum(forces**2, 1)**0.5
 
         return np.nanmax(forces)
-            
+
     def move_string(self):
         """
         move the node according to normal force
         the original string method
         """
-        from aimsChain.interpolate import spline_pos
-        import os
         positions = []
         forces = []
         new_t = []
         new_pos = []
         for node in self.nodes:
-            #list all the new params
+            # list all the new params
             new_t.append(node.param)
-            #add pos and force to the list
-            #only if it is not new (0 been default value)
-#            if (np.sum(node.positions) != 0):
+            # add pos and force to the list
+            # only if it is not new (0 been default value)
+            # if (np.sum(node.positions) != 0):
             positions.append(node.positions)
             forces.append(node.normal_forces)
 
@@ -569,7 +574,7 @@ class Path(object):
             new_pos = opt.step(positions, forces)
             opt.dump()
         else:
-            for i,node in enumerate(self.nodes):
+            for i, node in enumerate(self.nodes):
                 save = "%.4f.opt" % node.param
                 save = os.path.join(node.dir_pre, save)
                 opt = get_optimizer(self.control, self.control.optimizer, save)
@@ -580,20 +585,17 @@ class Path(object):
                 opt.dump()
 
         new_pos = spline_pos(new_pos, new_t)
-        for i,position in enumerate(new_pos):
+        for i, position in enumerate(new_pos):
             self.__nodes[i].positions = position
 
-        forces = np.reshape(forces, (-1,3))
-        forces = np.sum(forces**2,1)**0.5
+        forces = np.reshape(forces, (-1, 3))
+        forces = np.sum(forces**2, 1)**0.5
         return np.nanmax(forces)
-            
 
     def find_climb(self):
         """
         turn on the climb flags in the list of nodes
         """
-        import copy
-        from aimsChain.interpolate import arb_interp, spline_pos
         energy = []
         climb_nodes = []
         positions = []
@@ -609,18 +611,18 @@ class Path(object):
             if climb_mode != 3:
                 node.fixed = True
 
-        if (self.control.climb_interp == False) or (climb_mode == 3):
+        if self.control.climb_interp is False or climb_mode == 3:
             ind = energy.index(np.nanmax(energy[1:-1]))
             self.nodes[ind].fixed = False
             self.nodes[ind].climb = True
             target_node = self.nodes[ind]
         else:
-            new_t = np.linspace(0,1,1001)
+            new_t = np.linspace(0, 1, 1001)
             energy_interp = arb_interp(energy, new_t, old_t)
             ind = np.where(energy_interp == np.nanmax(energy_interp[1:-1]))[0][0]
             change_t = np.absolute(old_t - new_t[ind])
             mint_ind = np.where(change_t == np.nanmin(change_t))[0][0]
-            if(change_t[mint_ind] <= 0):
+            if change_t[mint_ind] <= 0:
                 t_thres = old_t[mint_ind+1] - old_t[mint_ind]
             else:
                 t_thres = old_t[mint_ind] - old_t[mint_ind-1]
@@ -631,10 +633,10 @@ class Path(object):
                 target_node = self.nodes[mint_ind]
             else:
                 new_t = np.array(new_t[ind])
-                new_node = Node(param = new_t,
-                                geometry = copy.deepcopy(self.nodes[mint_ind].geometry),
-                                path = self)
-                new_pos = spline_pos(positions, new_t, old_t = old_t)
+                new_node = Node(param=new_t,
+                                geometry=copy.deepcopy(self.nodes[mint_ind].geometry),
+                                path=self)
+                new_pos = spline_pos(positions, new_t, old_t=old_t)
                 new_node.positions = new_pos[0]
                 new_node.update_dir()
                 new_node.climb = True
@@ -646,14 +648,11 @@ class Path(object):
             if target_node.prev is not None:  # add
                 target_node.prev.fixed = False
             target_node.next.fixed = False
-            
 
     def move_climb(self):
         """
         move the climbing nodes using BFGS
         """
-        from aimsChain.interpolate import spline_pos, get_t
-        import os
         moving_nodes = []
         forces = []
         positions = []
@@ -666,7 +665,7 @@ class Path(object):
 
         if climb_mode == 1:
             node = moving_nodes[0]
-            save ="%.4f.climb.opt" % node.param
+            save = "%.4f.climb.opt" % node.param
             save = os.path.join(node.dir_pre, save)
             climb_force = node.climb_forces
             forces.append(climb_force)
@@ -679,19 +678,19 @@ class Path(object):
             opt.dump()
         else:
             if moving_nodes[0].prev:
-                moving_nodes.insert(0,moving_nodes[0].prev)
+                moving_nodes.insert(0, moving_nodes[0].prev)
             if moving_nodes[-1].next:
                 moving_nodes.append(moving_nodes[-1].next)
             new_t = []
             new_pos = []
             climb_ind = None
-            for i,node in enumerate(moving_nodes):
+            for i, node in enumerate(moving_nodes):
                 forces.append(node.climb_forces)
                 positions.append(node.positions)
                 new_t.append(node.param)
                 if node.climb:
                     climb_ind = i
-                print('climb_ind', climb_ind, node.climb, len(moving_nodes))
+
             forces = np.array(forces)
             positions = np.array(positions)
             if self.control.climb_global_opt:
@@ -702,7 +701,7 @@ class Path(object):
                 new_pos = opt.step(positions, forces)
                 opt.dump()
             else:
-                for i,node in enumerate(moving_nodes):
+                for i, node in enumerate(moving_nodes):
                     save = "%.4f.climb.opt" % node.param
                     save = os.path.join(node.dir_pre, save)
                     opt = get_optimizer(self.control, self.control.climb_optimizer, save)
@@ -711,22 +710,23 @@ class Path(object):
                     new_pos.append(opt.step(positions[i],
                                             forces[i]))
                     opt.dump()
-            print('[0:climb_ind+1]', new_pos[0:climb_ind+1].shape, new_pos.shape, climb_ind)
-            old_t = (get_t(new_pos[0:climb_ind+1]) 
-                     * (moving_nodes[climb_ind].param-moving_nodes[0].param) 
+
+            old_t = (get_t(new_pos[0:climb_ind+1])
+                     * (moving_nodes[climb_ind].param-moving_nodes[0].param)
                      + moving_nodes[0].param)
             old_t2 = (get_t(new_pos[climb_ind:])
-                      * (moving_nodes[-1].param - moving_nodes[climb_ind].param) 
+                      * (moving_nodes[-1].param - moving_nodes[climb_ind].param)
                       + moving_nodes[climb_ind].param)
             old_t = np.append(old_t, old_t2[1:])
-            new_pos = spline_pos(new_pos, new_t, old_t = old_t)
+            new_pos = spline_pos(new_pos, new_t, old_t=old_t)
             for i, position in enumerate(new_pos):
                 moving_nodes[i].positions = position
-        
-        forces = np.reshape(forces, (-1,3))
-        forces = np.sum(forces**2,1)**0.5
-        
+
+        forces = np.reshape(forces, (-1, 3))
+        forces = np.sum(forces**2, 1)**0.5
+
         return np.nanmax(forces)
+
     def n_nodes(self):
         """
         return the current number of nodes in the path
@@ -737,18 +737,16 @@ class Path(object):
         """
         interpolate/resample the current path
         """
-        from aimsChain.interpolate import linear_interp, spline_pos
-        import copy
         if self.n_nodes() == 2:
             pos1 = self.__nodes[0].positions
             pos2 = self.__nodes[1].positions
-            positions, new_t = linear_interp(pos1,pos2,n)
+            positions, new_t = linear_interp(pos1, pos2, n)
             positions = positions[1:-1]
             new_t = new_t[1:-1]
-            for i,t in enumerate(new_t):
-                new_node = Node(param = t, 
-                                geometry = copy.deepcopy(self.nodes[0].geometry), 
-                                path = self)
+            for i, t in enumerate(new_t):
+                new_node = Node(param=t,
+                                geometry=copy.deepcopy(self.nodes[0].geometry),
+                                path=self)
                 new_node.positions = positions[i]
                 new_node.update_dir()
                 self.nodes = new_node
@@ -758,24 +756,22 @@ class Path(object):
                 k = 2
             positions = []
             old_t = []
-            new_t = np.linspace(0,1,n+2)
+            new_t = np.linspace(0, 1, n + 2)
             for node in self.nodes:
                 old_t.append(node.param)
                 positions.append(node.positions)
             positions = np.array(positions)
-            positions = spline_pos(positions, new_t, old_t, k = k)[1:-1]
+            positions = spline_pos(positions, new_t, old_t, k=k)[1:-1]
             new_t = new_t[1:-1]
             self.nodes = [self.nodes[0], self.nodes[-1]]
-            for i,t in enumerate(new_t):
-                new_node = Node(param = t,
-                                geometry = copy.deepcopy(self.nodes[0].geometry),
+            for i, t in enumerate(new_t):
+                new_node = Node(param=t,
+                                geometry=copy.deepcopy(self.nodes[0].geometry),
                                 path=self)
                 new_node.positions = positions[i]
                 new_node.update_dir()
                 self.nodes = new_node
-            
-            
-    
+
     def write_path(self, file="path.dat"):
         """
         Write the current path into a file
@@ -796,17 +792,18 @@ class Path(object):
             data.write(node.dir + '\n')
             data.write('%d\n' % int(node.fixed))
             data.write('%d\n' % int(node.climb))
-        
+
         data.close()
+
     def read_path(self, file="path.dat"):
         """
         Read the file into current path
         """
         nodes = []
         data = open(file, 'r')
-        
+
         while True:
-            line = data.readline().replace('\n','')
+            line = data.readline().replace('\n', '')
             if not line:
                 break
             if line.split()[0][0] == '#':
@@ -814,54 +811,48 @@ class Path(object):
             else:
                 self.runs = int(float(line))
                 break
-    
+
         while True:
-            line = data.readline().replace('\n','')
+            line = data.readline().replace('\n', '')
             if not line:
                 break
             if line.split()[0][0] == '#':
                 continue
             elif 'Node' in line:
                 tmp_node = Node()
-                tmp_node.param = float(data.readline().replace('\n',''))
-                tmp_node.dir = data.readline().replace('\n','')
-                tmp_node.fixed = bool(int(float(data.readline().replace('\n',''))))
-                tmp_node.climb = bool(int(float(data.readline().replace('\n',''))))                
-
+                tmp_node.param = float(data.readline().replace('\n', ''))
+                tmp_node.dir = data.readline().replace('\n', '')
+                tmp_node.fixed = bool(int(float(data.readline().replace('\n', ''))))
+                tmp_node.climb = bool(int(float(data.readline().replace('\n', ''))))
                 nodes.append(tmp_node)
         self.nodes = nodes
 
 
 def get_optimizer(control, key, data_name):
-        from aimsChain.optimizer.lbfgs import LBFGS
-        from aimsChain.optimizer.newbfgs import BFGS
-        from aimsChain.optimizer.dampedbfgs import dampedBFGS
-        from aimsChain.optimizer.fire import FIRE
+    opt = None
+    if key.lower() == "lbfgs":
+        opt = LBFGS(data_name,
+                    maxstep=control.lbfgs_maxstep,
+                    memory=control.lbfgs_memory,
+                    alpha=control.lbfgs_alpha)
+    elif key.lower() == "bfgs":
+        opt = BFGS(data_name,
+                   maxstep=control.bfgs_maxstep,
+                   alpha=control.bfgs_alpha)
+    elif key.lower() == "fire":
+        opt = FIRE(data_name,
+                   dt=control.fire_dt,
+                   maxstep=control.fire_maxstep,
+                   dtmax=control.fire_dtmax,
+                   Nmin=control.fire_nmin,
+                   finc=control.fire_finc,
+                   fdec=control.fire_fdec,
+                   astart=control.fire_astart,
+                   fa=control.fire_fa,
+                   a=control.fire_a)
+    else:
+        opt = dampedBFGS(data_name,
+                         maxstep=control.bfgs_maxstep,
+                         alpha=control.bfgs_alpha)
 
-        opt = None
-        if key.lower() == "lbfgs":
-            opt = LBFGS(data_name, 
-                        maxstep=control.lbfgs_maxstep, 
-                        memory = control.lbfgs_memory, 
-                        alpha = control.lbfgs_alpha)
-        elif key.lower() == "bfgs":
-            opt = BFGS(data_name,
-                       maxstep = control.bfgs_maxstep,
-                       alpha = control.bfgs_alpha)
-        elif key.lower() == "fire":
-            opt = FIRE(data_name,
-                       dt = control.fire_dt,
-                       maxstep = control.fire_maxstep,
-                       dtmax = control.fire_dtmax,
-                       Nmin = control.fire_nmin,
-                       finc = control.fire_finc,
-                       fdec = control.fire_fdec,
-                       astart = control.fire_astart,
-                       fa = control.fire_fa,
-                       a = control.fire_a)
-        else:
-            opt = dampedBFGS(data_name,
-                             maxstep = control.bfgs_maxstep,
-                             alpha = control.bfgs_alpha)
-        
-        return opt
+    return opt

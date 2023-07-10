@@ -3,6 +3,7 @@ This module defines the basic Atom object.
 """
 import numpy as np
 
+
 class Atom(object):
     """
     Class for a single atom
@@ -12,26 +13,28 @@ class Atom(object):
     extra: list of string to store extra info from geometry files
     constraint: mask for constraint, 0 values will be masked
     """
-    
-    def __init__(self, positions=(0,0,0),
-                 forces=(0,0,0),
+
+    def __init__(self,
+                 positions=(0, 0, 0),
+                 forces=(0, 0, 0),
                  symbol='',
-                 constraint=[1,1,1]):
+                 constraint=[1, 1, 1]):
         self.__positions = np.array(positions)
         self.__forces = np.array(forces)
         self.__extra = []
         self.__symbol = symbol
-        self.__constraint=np.array(constraint)
+        self.__constraint = np.array(constraint)
 
     @property
     def positions(self):
         """get positions, numpy array with 3 float"""
         return self.__positions
+
     @positions.setter
     def positions(self, positions):
         """set positions"""
         self.__positions = np.array(positions)
-        
+
     @property
     def forces(self):
         """
@@ -39,6 +42,7 @@ class Atom(object):
         map constraint over the forces
         """
         return self.__forces*self.__constraint
+
     @forces.setter
     def forces(self, forces):
         """set forces"""
@@ -48,11 +52,13 @@ class Atom(object):
     def extra(self):
         """get extra, list of strings"""
         return self.__extra
+
     @extra.setter
     def extra(self, extra):
         """set the extra"""
         self.__extra = extra
-    def add_extra(self,extra):
+
+    def add_extra(self, extra):
         """add a new line to the end of existing extra"""
         self.__extra.append(extra)
 
@@ -60,10 +66,11 @@ class Atom(object):
     def symbol(self):
         """set the symbol for the atom"""
         return self.__symbol
+
     @symbol.setter
-    def symbol(self,symbol):
+    def symbol(self, symbol):
         """get symbol for the atom"""
-        self.__symbol=symbol
+        self.__symbol = symbol
 
     @property
     def constraint(self):
@@ -71,6 +78,7 @@ class Atom(object):
         get the constraint of the geometry
         """
         return self.__constraint
+
     @constraint.setter
     def constraint(self, constraint):
         """
@@ -81,13 +89,13 @@ class Atom(object):
         """
         if isinstance(constraint, str):
             if 'x' in constraint:
-                self.__constraint = self.constraint&np.array([0,1,1])
+                self.__constraint = self.constraint & np.array([0, 1, 1])
             if 'y' in constraint:
-                self.__constraint = self.constraint&np.array([1,0,1])
+                self.__constraint = self.constraint & np.array([1, 0, 1])
             if 'z' in constraint:
-                self.__constraint = self.constraint&np.array([1,1,0])
+                self.__constraint = self.constraint & np.array([1, 1, 0])
             if constraint == 'all':
-                self.__constraint = np.array([0,0,0])
+                self.__constraint = np.array([0, 0, 0])
         else:
             self.__constraint = np.array(constraint)
 
@@ -96,23 +104,23 @@ class Atoms(object):
     """
     Class for a single geometry
     Parameters:
-    
+
     atoms: list of Atom object, basis of Atoms
     lattice: the lattice vectors, for periodic system
     ener: energy of the geometry
     """
-    
-    def __init__(self, atoms=[], 
+
+    def __init__(self, atoms=[],
                  lattice=None,
-                 ener = 0):
+                 ener=0):
         import copy
-        self.__atoms=[]
+        self.__atoms = []
         for atom in atoms:
             if isinstance(atom, Atom):
                 self.__atoms.append(atom)
         self.__lattice = None
-        if np.shape(lattice) == (3,3):
-           self.__lattice = copy.deepcopy(lattice) 
+        if np.shape(lattice) == (3, 3):
+            self.__lattice = copy.deepcopy(lattice)
         self.__ener = float(ener)
 
     @property
@@ -121,6 +129,7 @@ class Atoms(object):
         get a list of all atoms in the geometry
         """
         return self.__atoms
+
     @atoms.setter
     def atoms(self, atom):
         """
@@ -131,17 +140,18 @@ class Atoms(object):
             self.__atoms.append(atom)
         elif isinstance(atom, list):
             self.__atoms = atom
-    
+
     @property
     def forces(self):
         """
-        get a list of forces, 
+        get a list of forces,
         index correspond to position of atom in the list
         """
         forces = []
         for atom in self.__atoms:
             forces.append(atom.forces)
         return np.array(forces)
+
     @forces.setter
     def forces(self, forces):
         """
@@ -161,6 +171,7 @@ class Atoms(object):
         for atom in self.__atoms:
             positions.append(atom.positions)
         return np.array(positions)
+
     @positions.setter
     def positions(self, positions):
         """
@@ -176,13 +187,15 @@ class Atoms(object):
         get the lattice constant stored in the geometry
         """
         return self.__lattice
+
     @lattice.setter
-    def lattice(self,lattice):
+    def lattice(self, lattice):
         """
         set the lattice vector for the geometry
         """
         if len(lattice) == 3 and len(lattice[0]) == 3:
             self.__lattice = np.array(lattice)
+
     @property
     def constraints(self):
         """
@@ -193,6 +206,7 @@ class Atoms(object):
         for atom in self.__atoms:
             constraints.append(atom.constraint)
         return np.array(constraints)
+
     @constraints.setter
     def constraints(self, constraints):
         """
@@ -201,6 +215,7 @@ class Atoms(object):
         """
         for i, single_constraint in enumerate(constraints):
             self.__atoms[i].constraint = single_constraint
+
     @property
     def ener(self):
         """
@@ -208,6 +223,7 @@ class Atoms(object):
         default value is 0, if not set otherwise
         """
         return self.__ener
+
     @ener.setter
     def ener(self, value):
         """

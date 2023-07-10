@@ -26,28 +26,29 @@ class FIRE(object):
         """load saved velocity and dt from file"""
         import os.path as path
         if path.isfile(self.restart):
-            save = open(self.restart,'r')
+            save = open(self.restart, 'r')
             try:
                 self.v, self.dt, self.a, self.Nsteps = cp.load(save)
             except:
                 self.initialize()
             save.close()
+
     def dump(self):
         """dump necessary values for future reference"""
         save = open(self.restart, 'w')
         cp.dump((self.v, self.dt, self.a, self.Nsteps), save)
         save.close()
-       
-    def step(self,r,f):
+
+    def step(self, r, f):
         r = np.array(r)
-        f = np.reshape(f,(-1,3))
+        f = np.reshape(f, (-1, 3))
         if self.v is None:
             self.v = np.zeros((len(f), 3))
         else:
-            vf = np.vdot(self.v,f)
+            vf = np.vdot(self.v, f)
             if vf > 0.0:
-                self.v = ((1.0 - self.a) * self.v + 
-                          (self.a * f / 
+                self.v = ((1.0 - self.a) * self.v +
+                          (self.a * f /
                            np.sqrt(np.vdot(f, f)) * np.sqrt(np.vdot(self.v, self.v))))
                 if self.Nsteps > self.Nmin:
                     self.dt = min(self.dt * self.finc, self.dtmax)
@@ -63,7 +64,7 @@ class FIRE(object):
         dr = self.dt * self.v
         dr = self.determine_step(dr)
         return r + dr.reshape(r.shape)
-    
+
     def determine_step(self, dr):
         steplengths = (dr**2).sum(1)**0.5
         maxsteplength = np.max(steplengths)

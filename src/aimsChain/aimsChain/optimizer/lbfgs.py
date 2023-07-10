@@ -6,7 +6,7 @@ import pickle as cp
 
 class LBFGS(object):
     """Limited memory BFGS optimizer.
-    
+
     A limited memory version of the bfgs algorithm. Unlike the bfgs algorithm
     used in bfgs.py, the inverse of Hessian matrix is updated.  The inverse
     Hessian is represented only as a diagonal matrix to save memory
@@ -14,9 +14,10 @@ class LBFGS(object):
     Modified from ASE's LBFGS optimizer
 
     """
+
     def __init__(self, restart="hess",
-                 maxstep=None, memory=25, 
-                 damping = 1.0, alpha = 70.0):
+                 maxstep=None, memory=25,
+                 damping=1.0, alpha=70.0):
         """
         Parameters:
 
@@ -36,14 +37,14 @@ class LBFGS(object):
 
         damping: float
             The calculated step is multiplied with this number before added to
-            the positions. 
+            the positions.
 
         alpha: float
             Initial guess for the Hessian (curvature of energy surface). A
             conservative value of 70.0 is the default, but number of needed
             steps to converge might be less if a lower value is used. However,
             a lower value also means risk of instability.
-            
+
         """
 
         if maxstep is not None:
@@ -75,7 +76,6 @@ class LBFGS(object):
         self.r0 = None
         self.f0 = None
 
-
     def load(self):
         """Load saved arrays to reconstruct the Hessian"""
         import os.path as path
@@ -88,19 +88,20 @@ class LBFGS(object):
     def dump(self):
         """dump necessary values for future reference"""
         hess = open(self.restart, 'w')
-        cp.dump((self.iteration, self.s, self.y, 
-                   self.rho, self.r0, self.f0), hess)
+        cp.dump((self.iteration, self.s, self.y,
+                 self.rho, self.r0, self.f0), hess)
         hess.close()
+
     def step(self, r, f):
         """Take a single step
-        
+
         Use the given forces, update the history and calculate the next step --
         then take it"""
         f = np.array(f)
         r = np.array(r)
-    
+
         self.update(r, f, self.r0, self.f0)
-        
+
         s = self.s
         y = self.y
         rho = self.rho
@@ -109,29 +110,26 @@ class LBFGS(object):
         loopmax = len(self.s)
         a = np.empty((loopmax,), dtype=np.float64)
 
-        ### The algorithm itself:
-        q = - f.reshape(-1) 
+        # The algorithm itself:
+        q = - f.reshape(-1)
         for i in range(loopmax - 1, -1, -1):
             a[i] = rho[i] * np.dot(s[i], q)
             q -= a[i] * y[i]
         z = H0 * q
-        
+
         for i in range(loopmax):
             b = rho[i] * np.dot(y[i], z)
             z += s[i] * (a[i] - b)
 
         self.p = - z.reshape((-1, 3))
-        ###
 
-        dr = self.determine_step(self.p * self.damping) 
+        dr = self.determine_step(self.p * self.damping)
         dr = np.reshape(dr, np.shape(r))
-#        print dr
+        # print dr
         self.r0 = r.copy()
         self.f0 = f.copy()
 
-
-
-        return r+dr
+        return r + dr
 
     def approxdr(self, f):
         """
@@ -139,7 +137,7 @@ class LBFGS(object):
         hessian is not updated
         """
         f = np.array(f)
-    
+
         s = self.s
         y = self.y
         rho = self.rho
@@ -148,29 +146,28 @@ class LBFGS(object):
         loopmax = len(self.s)
         a = np.empty((loopmax,), dtype=np.float64)
 
-        ### The algorithm itself:
-        q = - f.reshape(-1) 
+        # The algorithm itself:
+        q = - f.reshape(-1)
         for i in range(loopmax - 1, -1, -1):
             a[i] = rho[i] * np.dot(s[i], q)
             q -= a[i] * y[i]
         z = H0 * q
-        
+
         for i in range(loopmax):
             b = rho[i] * np.dot(y[i], z)
             z += s[i] * (a[i] - b)
 
         self.p = - z.reshape((-1, 3))
         ###
-#        dr = self.p * self.damping
+        # dr = self.p * self.damping
         dr = self.determine_step(self.p) * self.damping
         dr = np.reshape(dr, np.shape(f))
-
 
         return dr
 
     def determine_step(self, dr):
         """Determine step to take according to maxstep
-        
+
         Normalize all steps as the largest step. This way
         we still move along the eigendirection.
         """
@@ -178,7 +175,7 @@ class LBFGS(object):
         longest_step = np.max(steplengths)
         if longest_step >= self.maxstep:
             dr *= self.maxstep / longest_step
-        
+
         return dr
 
     def update(self, r, f, r0=None, f0=None):
@@ -188,8 +185,8 @@ class LBFGS(object):
         """
         r = np.array(r)
         f = np.array(f)
-        if r0 == None:
-            if self.r0 == None:
+        if r0 is None:
+            if self.r0 is None:
                 self.r0 = r.copy()
                 self.f0 = f.copy()
             else:
@@ -205,7 +202,6 @@ class LBFGS(object):
             # We use the gradient which is minus the force!
             y0 = f0.reshape(-1) - f.reshape(-1)
             rho0 = 1.0 / np.dot(y0, s0)
-            
 
             if rho0 >= 0:
                 self.y.append(y0)
